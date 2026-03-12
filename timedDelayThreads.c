@@ -51,3 +51,79 @@ void handle_client(SOCKET client_socket, int client_id) {
     close(client_socket);
 #endif
 }
+
+void* client_thread(void* arg) {
+    client_data *data = (client_data*)arg;
+
+    SOCKET client_socket = data->client_socket;
+    int client_id = data->client_id;
+
+    handle_client(client_socket, client_id);
+
+    free(data);
+    return NULL;
+}
+
+int main() {
+#ifdef _WIN32
+    WSADATA wsaData;
+    WSAStartup(MAKEWORD(2, 2), &wsaData);
+#endif
+
+    SOCKET server_socket, client_socket;
+    struct sockaddr_in server_addr, client_addr;
+    int client_count = 0;
+
+#ifdef _WIN32
+    int addr_len = sizeof(client_addr);
+#else
+    socklen_t addr_len = sizeof(client_addr);
+#endif
+
+    server_socket = socket(AF_INET, SOCK_STREAM, 0);
+
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(PORT);
+
+    bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr));
+    listen(server_socket, 5);
+
+    printf("Server listening on port %d...\n", PORT);
+    printf("NOTE: This server is MULTITHREADED. It can handle multiple clients concurrently!\n\n");
+
+    while (1) {
+        client_socket = accept(server_socket, (struct sockaddr *)&client_addr, &addr_len);
+
+        if (client_socket != INVALID_SOCKET) {
+            client_count++;
+
+            client_data *data = malloc(sizeof(client_data));
+            if (data == NULL) {
+                printf("Memory allocation failed.\n");
+#ifdef _WIN32
+                closesocket(client_socket);
+#else
+                close(client_socket);
+#endif
+                continue;
+            }
+
+            data->client_socket = client_socket;
+            data->client_id = client_count;
+
+            pthread_t tid;
+            pthread_create(&tid, NULL, client_thread, data);
+            pthread_detach(tid);
+        }
+    }
+
+#ifdef _WIN32
+    closesocket(server_socket);
+    WSACleanup();
+#else
+    close(server_socket);
+#endif
+
+    return 0;
+}
